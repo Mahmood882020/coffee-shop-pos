@@ -1,0 +1,15 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+@media print {
+  @page {
+    margin: 0;
+    size: 80mm auto; /* فرض مقاس الورق الحراري 8 سم */
+  }
+  
+  body {
+    margin: 0;
+    padding: 0;
+    background-color: white;
+  }
+}
