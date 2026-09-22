@@ -135,17 +135,29 @@ function Users() {
                   )}
                 </td>
                 <td className="p-4 text-blue-500 dark:text-blue-400">
-                  {editingId === user.id ? (
-                    <input
-                      type="text"
-                      value={editData.phone}
-                      onChange={e => setEditData({...editData, phone: e.target.value})}
-                      className="border rounded p-1 w-full max-w-[150px] mx-auto dark:bg-gray-700 dark:text-white dark:border-gray-600 focus:outline-none"
-                    />
-                  ) : (
-                     user.phone
-                  )}
-                </td>
+  {editingId === user.id ? (
+    <div className="flex flex-col gap-2">
+      <input
+        type="text"
+        value={editData.phone}
+        onChange={e => setEditData({...editData, phone: e.target.value})}
+        className="border rounded p-1 w-full max-w-[150px] mx-auto dark:bg-gray-700 dark:text-white dark:border-gray-600 focus:outline-none text-center"
+        placeholder="رقم الجوال"
+        title="رقم الجوال"
+      />
+      <input
+        type="password"
+        value={editData.password}
+        onChange={e => setEditData({...editData, password: e.target.value})}
+        className="border rounded p-1 w-full max-w-[150px] mx-auto text-black dark:bg-gray-700 dark:text-white dark:border-gray-600 focus:outline-none text-center"
+        placeholder="مرور جديدة (اختياري)"
+        title="اكتب كلمة المرور الجديدة هنا"
+      />
+    </div>
+  ) : (
+     user.phone
+  )}
+</td>
                 <td className="p-4">
                   {editingId === user.id ? (
                     <select
