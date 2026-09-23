@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
+import * as XLSX from 'xlsx';
 
 function Debts() {
   const [customers, setCustomers] = useState([]);
@@ -9,13 +10,8 @@ function Debts() {
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [transactions, setTransactions] = useState([]);
 
-  // حالة النافذة الجديدة لإضافة زبون ودين في خطوة واحدة
   const [newDebtModal, setNewDebtModal] = useState({
-    isOpen: false,
-    name: '',
-    phone: '',
-    amount: '',
-    notes: ''
+    isOpen: false, name: '', phone: '', amount: '', notes: ''
   });
 
   const fetchCustomers = () => {
@@ -45,41 +41,27 @@ function Debts() {
     if (!amountStr || isNaN(amountStr) || amountStr <= 0) return;
     
     const amount = parseFloat(amountStr);
-    const notes = window.prompt('أدخل بياناً أو ملاحظة لهذا الدين (مثال: دين قديم من الدفتر):', 'دين سابق (Previous Debt)') || 'دين يدوي';
+    const notes = window.prompt('أدخل بياناً أو ملاحظة لهذا الدين:', 'دين سابق') || 'دين يدوي';
 
     axios.post(`/customers/${id}/add-debt`, { amount, notes })
       .then(res => {
         alert(res.data.message);
         fetchCustomers();
       })
-      .catch(err => {
-        const errorMsg = err.response?.data?.error || err.response?.data?.message || 'حدث خطأ أثناء تسجيل الدين';
-        alert(errorMsg);
-      });
+      .catch(err => alert(err.response?.data?.error || 'حدث خطأ أثناء تسجيل الدين'));
   };
 
-  // دالة إنشاء زبون وإضافة دينه مباشرة
   const handleCreateCustomerWithDebt = async () => {
     if (!newDebtModal.name.trim()) return alert('يرجى إدخال اسم الزبون');
-
     try {
-      // 1. إنشاء الزبون
-      const custRes = await axios.post('/customers', {
-        name: newDebtModal.name,
-        phone: newDebtModal.phone
-      });
-
-      // استخراج الـ ID الخاص بالزبون الجديد
+      const custRes = await axios.post('/customers', { name: newDebtModal.name, phone: newDebtModal.phone });
       const newCustomerId = custRes.data.customer?.id || custRes.data.id;
-
-      // 2. إذا كان هناك مبلغ دين، نقوم بتسجيله فوراً للزبون الجديد
       if (newCustomerId && newDebtModal.amount && parseFloat(newDebtModal.amount) > 0) {
         await axios.post(`/customers/${newCustomerId}/add-debt`, {
           amount: parseFloat(newDebtModal.amount),
-          notes: newDebtModal.notes || 'رصيد افتتاحي من الدفتر القديم'
+          notes: newDebtModal.notes || 'رصيد افتتاحي'
         });
       }
-
       alert('تم إضافة الزبون وتحديث رصيده بنجاح');
       fetchCustomers();
       setNewDebtModal({ isOpen: false, name: '', phone: '', amount: '', notes: '' });
@@ -99,6 +81,50 @@ function Debts() {
     }
   };
 
+  // --- دوال التصدير والنسخ الاحتياطي ---
+
+  const exportDebtsToExcel = () => {
+    const data = filteredCustomers.map(c => ({
+      'الزبون': c.name,
+      'رقم الهاتف': c.phone || 'غير مدرج',
+      'حالة الرصيد': parseFloat(c.debt_balance) > 0 ? 'عليه دين' : parseFloat(c.debt_balance) < 0 ? 'له رصيد' : 'مصفّر',
+      'المبلغ (₪)': Math.abs(parseFloat(c.debt_balance))
+    }));
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "تقرير الديون");
+    XLSX.writeFile(wb, "Debts_Report.xlsx");
+  };
+
+  const exportStatementToExcel = () => {
+    const data = transactions.map(t => ({
+      'التاريخ': t.date,
+      'البيان': t.type,
+      'التفاصيل': t.notes,
+      'المبلغ (₪)': t.amount,
+      'الحركة': t.is_payment ? 'تسديد (خصم)' : 'دين (إضافة)'
+    }));
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, `كشف حساب - ${selectedCustomer?.name}`);
+    XLSX.writeFile(wb, `Statement_${selectedCustomer?.name}.xlsx`);
+  };
+
+  const downloadSystemBackup = async () => {
+    try {
+      const response = await axios.get('/backup', { responseType: 'blob' });
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `System_Backup_${new Date().toISOString().split('T')[0]}.json`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (error) {
+      alert('حدث خطأ أثناء تحميل النسخة الاحتياطية. تأكد من توافر الصلاحيات واتصال الخادم.');
+    }
+  };
+
   const filteredCustomers = customers.filter(c => {
     const matchesSearch = c.name.includes(searchTerm) || (c.phone && c.phone.includes(searchTerm));
     const balance = parseFloat(c.debt_balance);
@@ -110,189 +136,138 @@ function Debts() {
 
   return (
     <div className="p-8 font-sans h-full overflow-y-auto bg-gray-50 dark:bg-gray-900 transition-colors" dir="rtl">
-      <div className="flex justify-between items-center mb-8 flex-wrap gap-4">
-        <h1 className="text-3xl font-bold text-gray-800 dark:text-white">إدارة الديون والأرصدة (Debts)</h1>
-        <div className="flex items-center gap-4 flex-wrap">
-          <button 
-            onClick={() => setNewDebtModal({ ...newDebtModal, isOpen: true })} 
-            className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg transition-colors shadow-md"
-          >
-            + إضافة زبون ودين
-          </button>
-          <div className="bg-red-100 text-red-700 px-6 py-3 rounded-lg font-bold text-xl dark:bg-red-900/50 dark:text-red-400 dark:border dark:border-red-800">
+      
+      {/* واجهة الشاشة الرئيسية (تختفي عند الطباعة) */}
+      <div className="print:hidden">
+        <div className="flex justify-between items-center mb-8 flex-wrap gap-4">
+          <h1 className="text-3xl font-bold text-gray-800 dark:text-white">إدارة الديون والأرصدة (Debts)</h1>
+          
+          <div className="flex items-center gap-3 flex-wrap">
+            <button onClick={downloadSystemBackup} className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-lg transition-colors shadow-md">
+              نسخة احتياطية 💾
+            </button>
+            <button onClick={exportDebtsToExcel} className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg transition-colors shadow-md">
+              تصدير Excel 📊
+            </button>
+            <button onClick={() => window.print()} className="bg-gray-800 dark:bg-gray-700 hover:bg-gray-900 text-white font-bold py-2 px-4 rounded-lg transition-colors shadow-md">
+              طباعة PDF 🖨️
+            </button>
+            <button onClick={() => setNewDebtModal({ ...newDebtModal, isOpen: true })} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition-colors shadow-md">
+              + إضافة زبون ودين
+            </button>
+          </div>
+        </div>
+
+        <div className="mb-6 w-full flex flex-col md:flex-row gap-4 items-center">
+          <input 
+            type="text" 
+            placeholder="بحث عن زبون..." 
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full md:w-1/3 border p-3 rounded-lg dark:bg-gray-800 dark:border-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+          <label className="flex items-center gap-2 cursor-pointer text-gray-700 dark:text-gray-300 font-bold bg-white dark:bg-gray-800 px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-700">
+            <input 
+              type="checkbox" 
+              checked={showZeroBalances}
+              onChange={(e) => setShowZeroBalances(e.target.checked)}
+              className="w-5 h-5 rounded cursor-pointer accent-blue-600"
+            />
+            عرض الحسابات المصفّرة (0.00₪)
+          </label>
+          <div className="mr-auto bg-red-100 text-red-700 px-6 py-3 rounded-lg font-bold text-xl dark:bg-red-900/50 dark:text-red-400">
             إجمالي ديون السوق: ₪{totalDebts.toFixed(2)}
           </div>
         </div>
+
+        <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
+          <table className="w-full text-right">
+            <thead className="bg-gray-100 dark:bg-gray-700 border-b dark:border-gray-600">
+              <tr>
+                <th className="p-4 font-bold text-gray-700 dark:text-gray-200">الزبون</th>
+                <th className="p-4 font-bold text-gray-700 dark:text-gray-200">رقم الهاتف</th>
+                <th className="p-4 font-bold text-gray-700 dark:text-gray-200">حالة الرصيد</th>
+                <th className="p-4 font-bold text-gray-700 dark:text-gray-200 text-center">الإجراءات</th>
+              </tr>
+            </thead>
+            <tbody className="bg-white dark:bg-gray-800">
+              {filteredCustomers.map(customer => {
+                const balance = parseFloat(customer.debt_balance);
+                return (
+                  <tr key={customer.id} className="border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700">
+                    <td className="p-4 font-bold text-gray-800 dark:text-gray-100">{customer.name}</td>
+                    <td className="p-4 text-gray-600 dark:text-gray-300">{customer.phone}</td>
+                    <td className="p-4 font-bold text-xl">
+                      {balance > 0 ? (
+                        <span className="text-red-600 dark:text-red-400">عليه: ₪{balance.toFixed(2)}</span>
+                      ) : balance < 0 ? (
+                        <span className="text-green-600 dark:text-green-400">له: ₪{Math.abs(balance).toFixed(2)}</span>
+                      ) : (
+                        <span className="text-gray-500">مصفّر: ₪0.00</span>
+                      )}
+                    </td>
+                    <td className="p-4 text-center">
+                      <button onClick={() => handleAddDebt(customer.id, customer.name)} className="bg-red-100 text-red-700 px-4 py-2 rounded-lg font-bold hover:bg-red-200 dark:bg-red-900/60 ml-2">تسجيل دين</button>
+                      <button onClick={() => handlePayment(customer.id, customer.name)} className="bg-green-100 text-green-700 px-4 py-2 rounded-lg font-bold hover:bg-green-200 dark:bg-green-900/60 ml-2">تسديد دفعة</button>
+                      <button onClick={() => openStatement(customer)} className="bg-blue-100 text-blue-700 px-4 py-2 rounded-lg font-bold hover:bg-blue-200 dark:bg-blue-900/60">كشف حساب</button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
 
-      <div className="mb-6 w-full flex flex-col md:flex-row gap-4 items-center">
-        <input 
-          type="text" 
-          placeholder="بحث عن زبون..." 
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="w-full md:w-1/3 border p-3 rounded-lg dark:bg-gray-800 dark:border-gray-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
-        />
-        <label className="flex items-center gap-2 cursor-pointer text-gray-700 dark:text-gray-300 font-bold select-none bg-white dark:bg-gray-800 px-4 py-3 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm transition-colors hover:bg-gray-50 dark:hover:bg-gray-750">
-          <input 
-            type="checkbox" 
-            checked={showZeroBalances}
-            onChange={(e) => setShowZeroBalances(e.target.checked)}
-            className="w-5 h-5 rounded cursor-pointer accent-blue-600"
-          />
-          عرض الحسابات المصفّرة (0.00₪)
-        </label>
-      </div>
-
-      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden transition-colors">
-        <table className="w-full text-right">
-          <thead className="bg-gray-100 dark:bg-gray-700 border-b dark:border-gray-600">
-            <tr>
-              <th className="p-4 font-bold text-gray-700 dark:text-gray-200">الزبون</th>
-              <th className="p-4 font-bold text-gray-700 dark:text-gray-200">رقم الهاتف</th>
-              <th className="p-4 font-bold text-gray-700 dark:text-gray-200">حالة الرصيد</th>
-              <th className="p-4 font-bold text-gray-700 dark:text-gray-200 text-center">الإجراءات</th>
-            </tr>
-          </thead>
-          <tbody className="bg-white dark:bg-gray-800">
-            {filteredCustomers.map(customer => {
-              const balance = parseFloat(customer.debt_balance);
-              return (
-                <tr key={customer.id} className="border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-                  <td className="p-4 font-bold text-gray-800 dark:text-gray-100">{customer.name}</td>
-                  <td className="p-4 text-gray-600 dark:text-gray-300">{customer.phone}</td>
-                  <td className="p-4 font-bold text-xl">
-                    {balance > 0 ? (
-                      <span className="text-red-600 dark:text-red-400">عليه: ₪{balance.toFixed(2)}</span>
-                    ) : balance < 0 ? (
-                      <span className="text-green-600 dark:text-green-400">له: ₪{Math.abs(balance).toFixed(2)}</span>
-                    ) : (
-                      <span className="text-gray-500 dark:text-gray-500">مصفّر: ₪0.00</span>
-                    )}
-                  </td>
-                  <td className="p-4 text-center">
-                    <button 
-                      onClick={() => handleAddDebt(customer.id, customer.name)} 
-                      className="bg-red-100 text-red-700 px-4 py-2 rounded-lg font-bold hover:bg-red-200 dark:bg-red-900/60 dark:text-red-300 dark:hover:bg-red-900 ml-2 transition-colors border border-transparent dark:border-red-800"
-                    >
-                      تسجيل دين
-                    </button>
-                    <button 
-                      onClick={() => handlePayment(customer.id, customer.name)} 
-                      className="bg-green-100 text-green-700 px-4 py-2 rounded-lg font-bold hover:bg-green-200 dark:bg-green-900/60 dark:text-green-300 dark:hover:bg-green-900 ml-2 transition-colors border border-transparent dark:border-green-800"
-                    >
-                      تسديد دفعة
-                    </button>
-                    <button 
-                      onClick={() => openStatement(customer)} 
-                      className="bg-blue-100 text-blue-700 px-4 py-2 rounded-lg font-bold hover:bg-blue-200 dark:bg-blue-900/60 dark:text-blue-300 dark:hover:bg-blue-900 transition-colors border border-transparent dark:border-blue-800"
-                    >
-                      كشف حساب
-                    </button>
+      {/* نموذج طباعة سجل الديون العام (يظهر فقط عند الطباعة إذا لم تكن نافذة الكشف مفتوحة) */}
+      {!showStatementModal && (
+        <div className="hidden print:block font-sans text-black bg-white p-4" dir="rtl">
+          <div className="text-center mb-6 border-b pb-4">
+            <h2 className="text-2xl font-bold">السلام كافي</h2>
+            <h3 className="text-xl font-bold mt-3">تقرير ذمم الزبائن (الديون)</h3>
+            <p className="text-xs text-gray-500 mt-1">تاريخ الاستخراج: {new Date().toLocaleString('ar-EG')}</p>
+          </div>
+          <table className="w-full text-right text-sm border-collapse border border-gray-400">
+            <thead>
+              <tr className="bg-gray-100">
+                <th className="border border-gray-400 p-2 text-right">الزبون</th>
+                <th className="border border-gray-400 p-2 text-right">رقم الهاتف</th>
+                <th className="border border-gray-400 p-2 text-center">الرصيد (₪)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredCustomers.map(c => (
+                <tr key={c.id}>
+                  <td className="border border-gray-400 p-2 font-bold">{c.name}</td>
+                  <td className="border border-gray-400 p-2">{c.phone || '-'}</td>
+                  <td className="border border-gray-400 p-2 text-center font-bold" dir="ltr">
+                    {parseFloat(c.debt_balance) > 0 ? `عليه ${parseFloat(c.debt_balance).toFixed(2)}` : parseFloat(c.debt_balance) < 0 ? `له ${Math.abs(parseFloat(c.debt_balance)).toFixed(2)}` : '0.00'}
                   </td>
                 </tr>
-              );
-            })}
-            {filteredCustomers.length === 0 && (
-              <tr>
-                <td colSpan="4" className="p-8 text-center text-gray-500 dark:text-gray-400 bg-white dark:bg-gray-800">لا توجد ديون أو أرصدة مطابقة</td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {/* نافذة إضافة زبون ودين جديد */}
-      {newDebtModal.isOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4 transition-opacity">
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-lg p-6 border border-gray-200 dark:border-gray-700">
-            <h2 className="text-2xl font-bold text-gray-800 dark:text-white mb-6 border-b pb-4 dark:border-gray-700">
-              إنشاء زبون وتسجيل دينه
-            </h2>
-            
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">اسم الزبون *</label>
-                <input 
-                  type="text" 
-                  value={newDebtModal.name}
-                  onChange={e => setNewDebtModal({...newDebtModal, name: e.target.value})}
-                  className="w-full border p-3 rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="محمد أحمد"
-                  autoFocus
-                />
-              </div>
-              
-              <div>
-                <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">رقم الهاتف (اختياري)</label>
-                <input 
-                  type="text" 
-                  value={newDebtModal.phone}
-                  onChange={e => setNewDebtModal({...newDebtModal, phone: e.target.value})}
-                  className="w-full border p-3 rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-left"
-                  dir="ltr"
-                  placeholder="0590000000"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">مبلغ الدين القديم (اختياري)</label>
-                <input 
-                  type="number" 
-                  step="0.01"
-                  value={newDebtModal.amount}
-                  onChange={e => setNewDebtModal({...newDebtModal, amount: e.target.value})}
-                  className="w-full border p-3 rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-left"
-                  dir="ltr"
-                  placeholder="0.00"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">ملاحظات / تفاصيل (اختياري)</label>
-                <input 
-                  type="text" 
-                  value={newDebtModal.notes}
-                  onChange={e => setNewDebtModal({...newDebtModal, notes: e.target.value})}
-                  className="w-full border p-3 rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="رصيد من الدفتر القديم"
-                />
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-3 mt-8 pt-4 border-t dark:border-gray-700">
-              <button 
-                onClick={() => setNewDebtModal({ isOpen: false, name: '', phone: '', amount: '', notes: '' })} 
-                className="px-6 py-2.5 rounded-lg font-bold bg-gray-200 text-gray-700 hover:bg-gray-300 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
-              >
-                إلغاء
-              </button>
-              <button 
-                onClick={handleCreateCustomerWithDebt} 
-                className="px-6 py-2.5 rounded-lg font-bold bg-blue-600 text-white hover:bg-blue-700 shadow-md"
-              >
-                تأكيد وحفظ
-              </button>
-            </div>
-          </div>
+              ))}
+            </tbody>
+          </table>
+          <div className="mt-4 text-left font-bold">إجمالي ديون السوق: ₪{totalDebts.toFixed(2)}</div>
         </div>
       )}
 
       {/* نافذة كشف الحساب */}
       {showStatementModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4 transition-opacity">
-          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col border border-gray-200 dark:border-gray-700">
-            <div className="p-6 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center bg-gray-50 dark:bg-gray-900 rounded-t-xl">
-              <h2 className="text-2xl font-bold text-gray-800 dark:text-white">
-                كشف حساب: {selectedCustomer?.name}
-              </h2>
-              <button onClick={() => setShowStatementModal(false)} className="text-gray-500 dark:text-gray-400 hover:text-red-500 dark:hover:text-red-400 text-3xl font-bold leading-none">&times;</button>
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4 print:hidden">
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+            <div className="p-6 border-b dark:border-gray-700 flex justify-between items-center bg-gray-50 dark:bg-gray-900 rounded-t-xl">
+              <h2 className="text-2xl font-bold text-gray-800 dark:text-white">كشف حساب: {selectedCustomer?.name}</h2>
+              <div className="flex gap-2">
+                <button onClick={exportStatementToExcel} className="bg-green-600 hover:bg-green-700 text-white font-bold py-1.5 px-3 rounded-lg text-sm">Excel</button>
+                <button onClick={() => window.print()} className="bg-gray-800 hover:bg-gray-900 text-white font-bold py-1.5 px-3 rounded-lg text-sm">PDF</button>
+                <button onClick={() => setShowStatementModal(false)} className="text-gray-500 hover:text-red-500 text-3xl font-bold leading-none mr-4">&times;</button>
+              </div>
             </div>
             
             <div className="p-6 overflow-y-auto flex-1 bg-white dark:bg-gray-800">
               <table className="w-full text-right border-collapse">
                 <thead>
-                  <tr className="border-b-2 border-gray-200 dark:border-gray-700">
+                  <tr className="border-b-2 dark:border-gray-700">
                     <th className="pb-3 text-gray-600 dark:text-gray-300 font-bold">التاريخ</th>
                     <th className="pb-3 text-gray-600 dark:text-gray-300 font-bold">البيان</th>
                     <th className="pb-3 text-gray-600 dark:text-gray-300 font-bold">التفاصيل</th>
@@ -301,36 +276,85 @@ function Debts() {
                 </thead>
                 <tbody>
                   {transactions.map(t => (
-                    <tr key={t.id} className="border-b border-gray-100 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
+                    <tr key={t.id} className="border-b border-gray-100 dark:border-gray-700">
                       <td className="py-3 text-sm text-gray-600 dark:text-gray-400" dir="ltr">{t.date}</td>
                       <td className="py-3">
-                        <span className={`px-2 py-1 rounded text-xs font-bold border ${t.is_payment ? 'bg-green-100 text-green-700 border-green-200 dark:bg-green-900/40 dark:text-green-400 dark:border-green-800' : 'bg-red-100 text-red-700 border-red-200 dark:bg-red-900/40 dark:text-red-400 dark:border-red-800'}`}>
+                        <span className={`px-2 py-1 rounded text-xs font-bold border ${t.is_payment ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
                           {t.type}
                         </span>
                       </td>
                       <td className="py-3 text-sm text-gray-700 dark:text-gray-300">{t.notes}</td>
-                      <td className={`py-3 font-bold ${t.is_payment ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                      <td className={`py-3 font-bold ${t.is_payment ? 'text-green-600' : 'text-red-600'}`}>
                         {t.is_payment ? '-' : '+'}₪{t.amount}
                       </td>
                     </tr>
                   ))}
-                  {transactions.length === 0 && (
-                    <tr><td colSpan="4" className="text-center py-6 text-gray-500 dark:text-gray-400">لا توجد حركات مسجلة</td></tr>
-                  )}
                 </tbody>
               </table>
             </div>
-            
-            <div className="p-6 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 rounded-b-xl flex justify-between items-center">
-              <span className="font-bold text-gray-700 dark:text-gray-300">الرصيد النهائي:</span>
-              <span className={`text-2xl font-bold ${parseFloat(selectedCustomer?.debt_balance) > 0 ? 'text-red-600 dark:text-red-400' : parseFloat(selectedCustomer?.debt_balance) < 0 ? 'text-green-600 dark:text-green-400' : 'text-gray-500'}`}>
-                {parseFloat(selectedCustomer?.debt_balance) > 0 
-                  ? `عليه: ₪${parseFloat(selectedCustomer?.debt_balance).toFixed(2)}` 
-                  : parseFloat(selectedCustomer?.debt_balance) < 0 
-                  ? `له: ₪${Math.abs(parseFloat(selectedCustomer?.debt_balance)).toFixed(2)}`
-                  : `مصفّر: ₪0.00`
-                }
-              </span>
+          </div>
+        </div>
+      )}
+
+      {/* نموذج طباعة كشف الحساب (يظهر فقط عند الطباعة إذا كانت نافذة الكشف مفتوحة) */}
+      {showStatementModal && (
+        <div className="hidden print:block font-sans text-black bg-white p-4" dir="rtl">
+          <div className="text-center mb-6 border-b pb-4">
+            <h2 className="text-2xl font-bold">السلام كافي</h2>
+            <h3 className="text-xl font-bold mt-3">كشف حساب زبون</h3>
+            <p className="text-sm font-bold mt-2">الاسم: {selectedCustomer?.name}</p>
+            <p className="text-xs text-gray-500 mt-1">تاريخ الاستخراج: {new Date().toLocaleString('ar-EG')}</p>
+          </div>
+          <table className="w-full text-right text-sm border-collapse border border-gray-400">
+            <thead>
+              <tr className="bg-gray-100">
+                <th className="border border-gray-400 p-2 text-right">التاريخ</th>
+                <th className="border border-gray-400 p-2 text-right">البيان</th>
+                <th className="border border-gray-400 p-2 text-right">التفاصيل</th>
+                <th className="border border-gray-400 p-2 text-center">المبلغ (₪)</th>
+              </tr>
+            </thead>
+            <tbody>
+              {transactions.map(t => (
+                <tr key={t.id}>
+                  <td className="border border-gray-400 p-2" dir="ltr">{t.date}</td>
+                  <td className="border border-gray-400 p-2">{t.type}</td>
+                  <td className="border border-gray-400 p-2">{t.notes}</td>
+                  <td className="border border-gray-400 p-2 text-center font-bold" dir="ltr">
+                    {t.is_payment ? '-' : '+'} {t.amount}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div className="mt-4 font-bold border-t border-gray-400 pt-2">
+            الرصيد النهائي: {parseFloat(selectedCustomer?.debt_balance) > 0 ? `عليه ₪${parseFloat(selectedCustomer?.debt_balance).toFixed(2)}` : `مصفّر`}
+          </div>
+        </div>
+      )}
+
+      {/* نافذة إضافة زبون ودين جديد */}
+      {newDebtModal.isOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4 print:hidden">
+          <div className="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-lg p-6">
+            <h2 className="text-2xl font-bold text-gray-800 dark:text-white mb-6">إنشاء زبون وتسجيل دينه</h2>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">اسم الزبون *</label>
+                <input type="text" value={newDebtModal.name} onChange={e => setNewDebtModal({...newDebtModal, name: e.target.value})} className="w-full border p-3 rounded-lg dark:bg-gray-700 dark:text-white" autoFocus />
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">رقم الهاتف (اختياري)</label>
+                <input type="text" value={newDebtModal.phone} onChange={e => setNewDebtModal({...newDebtModal, phone: e.target.value})} className="w-full border p-3 rounded-lg dark:bg-gray-700 dark:text-white text-left" dir="ltr" />
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-2">مبلغ الدين (اختياري)</label>
+                <input type="number" step="0.01" value={newDebtModal.amount} onChange={e => setNewDebtModal({...newDebtModal, amount: e.target.value})} className="w-full border p-3 rounded-lg dark:bg-gray-700 dark:text-white text-left" dir="ltr" />
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 mt-8">
+              <button onClick={() => setNewDebtModal({ isOpen: false, name: '', phone: '', amount: '', notes: '' })} className="px-6 py-2.5 rounded-lg font-bold bg-gray-200 text-gray-700">إلغاء</button>
+              <button onClick={handleCreateCustomerWithDebt} className="px-6 py-2.5 rounded-lg font-bold bg-blue-600 text-white">تأكيد وحفظ</button>
             </div>
           </div>
         </div>
