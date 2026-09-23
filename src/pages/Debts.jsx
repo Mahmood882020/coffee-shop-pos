@@ -26,7 +26,7 @@ function Debts() {
   }, []);
 
   const handlePayment = (id, name) => {
-    const amount = window.prompt(`أدخل المبلغ المراد تسديده للزبون: ${name}\nملاحظة: لإضافة دين جديد، قم بتسجيل طلب آجل من نقطة البيع.`);
+    const amount = window.prompt(`أدخل المبلغ المراد تسديده من دين الزبون: ${name}`);
     if (!amount || isNaN(amount) || amount <= 0) return;
 
     axios.post(`/customers/${id}/pay`, { amount })
@@ -35,6 +35,24 @@ function Debts() {
         fetchCustomers();
       })
       .catch(err => alert('حدث خطأ أثناء تسجيل الدفعة'));
+  };
+
+  const handleAddDebt = (id, name) => {
+    const amountStr = window.prompt(`أدخل مبلغ الدين السابق/الجديد للزبون: ${name}\nسيتم إضافة هذا المبلغ إلى رصيد ديونه فوراً.`);
+    if (!amountStr || isNaN(amountStr) || amountStr <= 0) return;
+    
+    const amount = parseFloat(amountStr);
+    const notes = window.prompt('أدخل بياناً أو ملاحظة لهذا الدين (مثال: دين قديم من الدفتر):', 'دين سابق (Previous Debt)') || 'دين يدوي';
+
+    axios.post(`/customers/${id}/add-debt`, { amount, notes })
+      .then(res => {
+        alert(res.data.message);
+        fetchCustomers();
+      })
+      .catch(err => {
+        const errorMsg = err.response?.data?.error || err.response?.data?.message || 'حدث خطأ أثناء تسجيل الدين';
+        alert(errorMsg);
+      });
   };
 
   const openStatement = async (customer) => {
@@ -117,6 +135,12 @@ function Debts() {
                     )}
                   </td>
                   <td className="p-4 text-center">
+                    <button 
+                      onClick={() => handleAddDebt(customer.id, customer.name)} 
+                      className="bg-red-100 text-red-700 px-4 py-2 rounded-lg font-bold hover:bg-red-200 dark:bg-red-900/60 dark:text-red-300 dark:hover:bg-red-900 ml-2 transition-colors border border-transparent dark:border-red-800"
+                    >
+                      تسجيل دين
+                    </button>
                     <button 
                       onClick={() => handlePayment(customer.id, customer.name)} 
                       className="bg-green-100 text-green-700 px-4 py-2 rounded-lg font-bold hover:bg-green-200 dark:bg-green-900/60 dark:text-green-300 dark:hover:bg-green-900 ml-2 transition-colors border border-transparent dark:border-green-800"
