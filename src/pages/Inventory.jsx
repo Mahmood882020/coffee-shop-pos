@@ -115,7 +115,7 @@ function Inventory() {
     } else {
       if (!productId) return alert('يرجى اختيار صنف موجود أو تحديد "صنف جديد"');
       
-      const existingProduct = categories.flatMap(c => c.products).find(p => p.id === parseInt(productId));
+      const existingProduct = categories.flatMap(c => c.products).find(p => p.id == productId);
       const newStock = (existingProduct.stock || 0) + addedQty;
 
       const updatedData = {
@@ -143,7 +143,7 @@ function Inventory() {
 
   // تعبئة البيانات تلقائياً عند اختيار صنف موجود في النافذة الشاملة
   const handleProductSelection = (prodId) => {
-    const prod = categories.flatMap(c => c.products).find(p => p.id === parseInt(prodId));
+    const prod = categories.flatMap(c => c.products).find(p => p.id == prodId);
     if (prod) {
       setGlobalModal(prev => ({
         ...prev,
@@ -444,7 +444,7 @@ function Inventory() {
                       className="w-full border p-3 rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:outline-none focus:border-blue-500 disabled:opacity-50"
                     >
                       <option value="">اختر الصنف من القائمة...</option>
-                      {categories.find(c => c.id === parseInt(globalModal.categoryId))?.products.filter(p => p.is_trackable).map(prod => (
+                      {categories.find(c => c.id == globalModal.categoryId)?.products.map(prod => (
                         <option key={prod.id} value={prod.id}>{prod.name}</option>
                       ))}
                     </select>
