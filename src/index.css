@@ -1,15 +1,42 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@media print {
+  /* إزالة هوامش الورقة الافتراضية */
+  @page {
+    margin: 0;
+  }
+
+  /* إجبار المتصفح على توسيط المحتوى أفقياً والبدء من أعلى الصفحة */
+  body, html {
+    display: flex !important;
+    justify-content: center !important;
+    align-items: flex-start !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background-color: white !important;
+  }
+
+  /* تحديد عرض الفاتورة الحرارية (80 ملم) وتوسيطها داخلياً مع ضبط الاتجاه */
+  #root, .receipt-container {
+    width: 80mm !important;
+    max-width: 80mm !important;
+    margin: 0 auto !important;
+    direction: rtl !important;
+    text-align: right !important;
+    box-sizing: border-box !important;
+  }
+}
+
 @media print {
   @page {
     margin: 0;
-    size: 80mm auto; /* فرض مقاس الورق الحراري 8 سم */
   }
-  
   body {
-    margin: 0;
-    padding: 0;
-    background-color: white;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    background-color: white !important;
   }
 }

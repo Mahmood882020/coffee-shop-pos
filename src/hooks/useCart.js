@@ -73,6 +73,7 @@ export const useCart = () => {
         updateQuantity,
         removeFromCart,
         clearCart,
-        cartTotal
+        cartTotal,
+        setCartItems // تم حل المشكلة الجوهرية بتصدير هذه الدالة هنا
     };
 };

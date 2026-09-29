@@ -1,0 +1,6 @@
+{
+  "appId": "com.alsalam.app",
+  "appName": "Alsalam Coffee",
+  "webDir": "dist",
+  "bundledWebRuntime": false
+}
